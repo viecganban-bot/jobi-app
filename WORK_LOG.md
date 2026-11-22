@@ -1,3 +1,8 @@
+## 2026-11-22 — 엔진 정리 1차: 전체 재처리 자동 실행 끄기·승인 범위 중간안 (Lee 결정)
+- 변경: refresh-facebook-existing.yml 예약(30분)·push 실행·REPROCESS_ENQUEUE_ALL 자동 설정 삭제(수동 실행만, 번호 없이 실행하면 대기열만 처리). 승인 범위(protected-paths.mjs OWNER_PATHS)를 승인 장치 자체로 축소, Claude 게시 금지 경로는 AI_LOCKED_PATHS로 분리 유지, ⑨ workflowSafeChange 삭제, 워크플로 열쇠·쓰기 권한 줄 신호 추가, CODEOWNERS·결정 0003 개정·CLAUDE.md·RULES_CORE 동기.
+- 안 한 것: 업종 트리거 2개 합치기(trg_00은 정책 판정 입력, trg_zzzy는 R8 뒤 재계산 — 하나만 두면 결과가 달라질 수 있어 migration 안 만듦). 공개 판정 트리거 통합은 조사만.
+- 검증: npm test 124/124, tsc 통과. 운영 병합·공개 24건 확인은 Lee 승인 뒤.
+
 ## 2026-11-19 — S7 완료: 필수 아닌 시험 필수화·중복 워크플로 정리·71개 처리 기록 (#808, #920)
 - 변경(#920): pr-checks.yml checks에 crawler-cli-tests(offline)·job-policy-tests·reprocess-queue-ci 시험 그대로 옮김, 제거 3개(job-policy-tests·reprocess-queue-ci·r7-source-aware-unit, 참조 0), map-pin-fit-check 손으로만, SAFE_TEST_WORKFLOWS 정리, 라벨 regression.
 - 기록: docs/system-redesign/S7-workflow-results.md(71줄). RULES_CORE 자동 생성은 보류(요약본 문장 훼손 위험).

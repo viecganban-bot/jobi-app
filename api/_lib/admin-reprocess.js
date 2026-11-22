@@ -40,9 +40,9 @@ export function createAdminReprocessHandler() {
         unique.map(id=>({job_id:id,rule_version:ruleVersion,reason:'admin_requested'}))
       ).select('id,job_id,status')
       if(error)throw error
-      // Optional server-to-server immediate kick; absence of a GitHub token leaves
-      // the durable queue for the scheduled Actions worker (never lose requests).
-      let execution='github_actions_scheduled'
+      // Optional server-to-server immediate kick. 예약 실행은 없앴다(Lee 2026-11-22) — 토큰이 없으면 요청은 대기열에 남고
+      // Actions에서 수동 실행(번호 없이)할 때 처리된다(요청은 잃지 않는다).
+      let execution='queued_until_manual_run'
       const ghToken=process.env.GITHUB_REPROCESS_TOKEN
       if(ghToken) {
         try {
@@ -52,7 +52,7 @@ export function createAdminReprocessHandler() {
             body:JSON.stringify({ref:'master'})
           })
           if(response.status===204)execution='github_actions_dispatched'
-        } catch { /* durable queue is still processed on the next scheduled run */ }
+        } catch { /* durable queue is still processed on the next manual run */ }
       }
       return res.status(202).json({accepted:true,queue:data,execution})
     } catch {

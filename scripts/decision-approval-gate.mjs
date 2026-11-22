@@ -3,7 +3,7 @@
 // master 보호 설정이 승인 수 0이라 코드 소유자 승인이 실제로 막지 못한 문제(2026-10-28 #295)의 보완이다.
 // 승인 근거: 현재 head SHA에 대한 Lee 계정의 APPROVED 리뷰만(S3-2: 댓글 승인 폐지). 다른 SHA에 대한 승인은 무효(새 커밋이 오면 다시 승인).
 // PR 작성자는 작업 계정(viecganban-bot)이라 Lee가 리뷰할 수 있다. Lee 계정이 만든 예전 PR은 Lee가 자기 승인을 못 하므로 보류된다(닫힌 실패).
-import { OWNER_PATHS, DECISION_DIR, matchesOwnerPath } from './ci/protected-paths.mjs'
+import { OWNER_PATHS, AI_LOCKED_PATHS, DECISION_DIR, matchesOwnerPath } from './ci/protected-paths.mjs'
 export const OWNER = 'KHOAILANG0926'
 export const PROTECTED = (path) => path.startsWith('docs/decisions/') || path === '.github/CODEOWNERS'
 // R2 자동 병합 통제 강화(Lee 2026-11-13 승인): 승인 대상은 파일 내용으로 자동 감지한다 — 라벨·Claude 답글·작성자 말이 아니라 실제 변경 파일이 기준이라 라벨을 빼거나 답글을 달아도 우회되지 않는다.
@@ -18,6 +18,8 @@ export const NEEDS_LEE_LABEL = 'needs-lee'
 // ④ 검사·보호 장치 변경(검사 약화 가능): 워크플로·검사/판정 스크립트·검토 기준을 바꾸는 PR도 Lee 승인 대상(#807 '검사 약화는 대표님 결정').
 // 검사 장치 파일 = Lee 승인 대상 경로 단일 목록(scripts/ci/protected-paths.mjs)에서 결정 문서 폴더(PROTECTED가 따로 봄)를 뺀 것 — 목록을 여기에 따로 적지 않는다(CODEOWNERS·승인 범위 검사와 항상 같음).
 export const GATE_CODE = (path) => matchesOwnerPath(path, OWNER_PATHS.filter((p) => p !== DECISION_DIR))
+// Claude 게시 잡 수정 금지 경로(승인 범위와 별개, 위 보호 목록 파일 주석 참고) — claude-publish가 씀.
+export const AI_LOCKED = (path) => matchesOwnerPath(path, AI_LOCKED_PATHS)
 // ⑤ 의존성·검증 약화(S4, Lee 2026-11-15 "package.json 전체를 고위험으로 지정하지 말 것"): package.json을 바꿨다고 다 승인 대상이 아니다.
 //    승인 대상 = 새 의존성 / 설치 스크립트(직접·의존성 lockfile hasInstallScript) / 패키지 출처 변경(registry 밖 주소·git·file·npm 별칭·.npmrc·overrides)
 //               / 검증 약화(test·build·typecheck 등 scripts 변경, 시험 파일 삭제·이름 바꿈, 시험 실행기·tsconfig 변경).
@@ -117,7 +119,7 @@ export const frameApproved = (path, framePaths) => framePaths.includes(path)
 //    목록은 '일반'을 적고 나머지를 판단 불가로 본다(새 파일 종류가 생겨도 빠뜨리지 않게 — 닫힌 실패).
 export const NORMAL_PATH = (path) => [
   /^src\//, /^api\//, /^public\//, /^crawler\//, /^scripts\//, /^policy\//, /^test-fixtures\//, /^data\//,
-  /^docs\//, /^supabase\/(?:migrations|tests|pending)\//,
+  /^docs\//, /^supabase\/(?:migrations|tests|pending)\//, /^\.github\/workflows\/[^/]+\.ya?ml$/,  // 일반 워크플로(엔진 정리 1차, 2026-11-22): 승인 장치 워크플로는 GATE_CODE가 먼저 잡고, 열쇠·권한 줄은 ⑦이 잡음
   /^[A-Za-z0-9_-]+\.md$/, /^\.claude\/RULES_CORE\.md$/, /^tsconfig\.tsbuildinfo$/, /^package(?:-lock)?\.json$/,
 ].some((re) => re.test(path))
 
@@ -134,6 +136,7 @@ const CONTENT_SCAN = (path) => CODE_EXT.test(path) && !/^docs\//.test(path) && (
 export const CONTENT_SIGNALS = [
   ['DB 권한·보안 설정', /\b(?:create|alter|drop)\s+(?:or\s+replace\s+)?(?:policy|role|user|extension)\b|row\s+level\s+security|\b(?:grant|revoke)\s+\w|security\s+definer|\bauth\.(?:users|uid\(|jwt\(|role\()|\bset\s+role\b|pgsodium|vault\./i],
   ['인증·비밀값', /service_role|SERVICE_ROLE|\bauth\.admin\b|\.auth\.admin\b|verify_jwt|jsonwebtoken|\bjwt\.(?:sign|verify)\b|\bAuthorization\b\s*[:=]|\bBearer\s+\$|process\.env\.[A-Za-z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD|PASSWD)\b|os\.environ(?:\.get)?\W+["'][A-Za-z0-9_]*(?:KEY|SECRET|TOKEN|PASSWORD)\b|secrets\.[A-Z_]+|-----BEGIN [A-Z ]*PRIVATE KEY|timingSafeEqual|createHmac|signInWith|resetPasswordForEmail/],
+  ['워크플로 열쇠 환경·쓰기 권한', /^\s*(?:environment:|(?:contents|actions|id-token|pull-requests|issues|workflows|packages|deployments|statuses|checks):\s*write\b|pull_request_target\b)/m],
   ['명령 실행·위험 API', /\bchild_process\b|\bexec(?:Sync|File|FileSync)?\s*\(|\bspawn(?:Sync)?\s*\(|\beval\s*\(|new\s+Function\s*\(|dangerouslySetInnerHTML|\.innerHTML\s*=|\bos\.system\b|\bsubprocess\.|\bpickle\.loads?\b|Access-Control-Allow-Origin/],
 ]
 // 이미 쓰는 것으로 확인된 외부 주소(표준·문서·이 서비스가 쓰는 지도/DB/배포/소셜) — 이 밖의 새 주소가 추가되면 '새 외부 API'로 본다
@@ -202,72 +205,21 @@ export function leeApprovedAt(reviews = [], sha, author) {
   return !!last && last.state === 'APPROVED' && last.commit_id === sha
 }
 
-// ⑨ 워크플로 실행 환경·시험 추가(Lee 2026-11-17 "도장 찍기식 대표 승인 문제"): .github/ 아래 파일은 경로만으로 검사·보호 장치(④)였다.
-//    그래서 실행 서버 판·Python 판 같은 실행 환경 수정, 시험 단계 추가도 매번 Lee 승인을 기다렸다(#876 crawl.yml runs-on·python-version).
-//    기존 워크플로 파일(status modified, 변경 내용 있음)의 바뀐 줄이 '모두' 아래 안전 줄이면 ④로 올리지 않는다(②③⑤⑦ 등 다른 판정은 그대로).
-//    한 줄이라도 다르면(실행 조건 if·예약 cron·권한·비밀값·환경·새 action·실행 명령·continue-on-error 등) 예전처럼 Lee 승인 — 판단할 수 없으면 승인(닫힌 실패).
-//    · 모든 워크플로: 실행 서버(GitHub 호스트 ubuntu)·Python/Node 판·시간 제한·주석 줄만(추가·삭제 모두)
-//    · 시험 전용 워크플로(SAFE_TEST_WORKFLOWS — 열쇠·환경·쓰기 권한·특수 실행 계기 없음, 시험이 확인): 시험 단계 '추가'도 안전(시험 명령·알려진 action·설치 줄).
-//      시험 단계를 '지우는' 줄은 검증 약화라 안전이 아니다. 검사·병합·승인을 하는 워크플로(pr-checks·bot-pr-automerge 등)는 이 목록에 없다.
-export const SAFE_TEST_WORKFLOWS = ['crawler-cli-tests.yml', 'vn-admin-sync.yml', 'multi-role-presentation.yml'] // S7(#808): job-policy-tests·r7-source-aware-unit·reprocess-queue-ci는 필수 checks로 합쳐 지움
-  .map((f) => `.github/workflows/${f}`)
-const TAIL = String.raw`(?:\s+#.*)?$`
-const ENV_LINES = [String.raw`runs-on:\s*ubuntu-(?:latest|\d{2}\.04)`, String.raw`python-version:\s*'?\d+\.\d+'?`, String.raw`node-version:\s*'?\d+'?`, String.raw`timeout-minutes:\s*\d{1,3}`]
-  .map((r) => new RegExp(`^${r}${TAIL}`))
-const RESERVED_KEYS = /^(?:permissions|env|secrets|environment|on|jobs|if|needs|outputs|services|container|concurrency|defaults|strategy|uses|with|run|shell|continue-on-error|working-directory|name|runs-on|timeout-minutes|steps|inputs|workflow_call)$/
-const TEST_ADD_LINES = [
-  String.raw`-\s+name:\s+[^$\x60]+`,
-  String.raw`(?:-\s+)?run:\s+python3?(?:\s+-I)?\s+crawler\/test_\w+\.py`,
-  String.raw`(?:-\s+)?run:\s+node(?:\s+--test|\s+--experimental-strip-types)?\s+scripts\/[\w\/.-]+\.test\.mjs`,
-  String.raw`(?:-\s+)?uses:\s+actions\/(?:checkout@v4|setup-python@v5|setup-node@v4)`,
-  String.raw`with:`, String.raw`persist-credentials:\s*false`, String.raw`working-directory:\s*crawler`, String.raw`steps:`, String.raw`run:\s*\|`,
-  String.raw`python3?\s+-m\s+pip\s+install\s+-r\s+crawler\/requirements\.txt`, String.raw`python3?\s+-m\s+playwright\s+install(?:\s+--with-deps)?\s+chromium`,
-  String.raw`(?:-\s+)?run:\s+python3?\s+-c\s+"import\s+[\w, ]+;\s*print\('[\w ]*'\)"`,
-].map((r) => new RegExp(`^${r}${TAIL}`))
-// 새 시험 잡 이름 줄(값 없는 `이름:`)은 정확한 자리일 때만(검토관 지적 #878: 실행 계기 `pull_request_target:` 같은 줄이 통과하던 것):
-//   ① hunk 머리의 위치가 `jobs:` 아래 ② 들여쓰기 정확히 2칸 ③ 실행 계기·예약 키 이름이 아님 ④ 바로 다음 추가 줄이 4칸 `runs-on: ubuntu-…`
-const EVENT_NAMES = /^(?:branch_protection_rule|check_run|check_suite|create|delete|deployment|deployment_status|discussion|discussion_comment|fork|gollum|issue_comment|issues|label|merge_group|milestone|page_build|public|pull_request|pull_request_comment|pull_request_review|pull_request_review_comment|pull_request_target|push|registry_package|release|repository_dispatch|schedule|status|watch|workflow_call|workflow_dispatch|workflow_run)$/
-const jobIdAt = (lines, k, hunkCtx) => {
-  const raw = lines[k].slice(1)
-  const m = raw.match(/^ {2}([a-z0-9][a-z0-9_-]*):(?:\s+#.*)?$/)
-  if (!m || RESERVED_KEYS.test(m[1]) || EVENT_NAMES.test(m[1]) || hunkCtx[k] !== 'jobs:') return false
-  const next = lines.slice(k + 1).find((l) => l[0] === '+' && l.slice(1).trim() !== '' && !l.slice(1).trim().startsWith('#'))
-  return !!next && /^\+ {4}runs-on:\s*ubuntu-(?:latest|\d{2}\.04)(?:\s+#.*)?$/.test(next)
-}
-export function workflowSafeChange(f) {
-  const name = f?.filename ?? ''
-  if (!/^\.github\/workflows\/[^/]+\.ya?ml$/.test(name) || f.status !== 'modified' || typeof f.patch !== 'string' || f.previous_filename) return false
-  const testWf = SAFE_TEST_WORKFLOWS.includes(name)
-  // 바뀐 줄마다 그 hunk 머리의 위치 글(@@ … @@ 뒤, YAML이면 바로 위 최상위 키)을 기억한다
-  const lines = [], hunkCtx = []
-  let ctx = ''
-  for (const l of f.patch.split('\n')) {
-    const h = l.match(/^@@[^@]*@@\s?(.*)$/)
-    if (h) { ctx = h[1].trim(); continue }
-    if (/^[+-]/.test(l) && !/^(?:\+\+\+|---)/.test(l)) { lines.push(l); hunkCtx.push(ctx) }
-  }
-  if (!lines.length) return false
-  return lines.every((l, k) => {
-    const t = l.slice(1).trim()
-    if (t === '' || t.startsWith('#')) return true
-    if (t.includes('${{')) return false
-    if (ENV_LINES.some((re) => re.test(t))) return true
-    return testWf && l[0] === '+' && (TEST_ADD_LINES.some((re) => re.test(t)) || jobIdAt(lines, k, hunkCtx))
-  })
-}
+// ⑨(워크플로 실행 환경·시험 추가는 안전 줄이면 승인 제외 — workflowSafeChange·SAFE_TEST_WORKFLOWS)는 엔진 정리 1차(Lee 2026-11-22)에서 지웠다:
+//    일반 워크플로가 경로만으로는 승인 대상이 아니게 되어 같은 완화가 필요 없다(승인 장치 워크플로는 안전 줄이어도 승인).
+//    일반 워크플로의 열쇠 환경·쓰기 권한·실행 계기·비밀값 줄은 ⑦ 내용 신호가 그대로 잡는다.
 
 export function decisionApproval({ files, reviews, comments, sha, labels = [], framePaths = [], deps: depFiles = {}, author, body = '', repo = '' }) {
   // 이름이 바뀐 파일은 새 경로와 옛 경로(previous_filename) 둘 다 판정한다(검토 지적: 워크플로·검사 스크립트·CODEOWNERS·결정 문서·화면 틀 파일을 일반 경로로 옮겨 우회 불가)
   const names = [...new Set(files.flatMap((f) => [f.filename ?? f, f.previous_filename].filter(Boolean)))]
   const decision = names.filter(PROTECTED)
   const frame = names.filter((f) => !PROTECTED(f) && frameApproved(f, framePaths))
-  const safeWf = new Set(files.filter((f) => typeof f === 'object' && workflowSafeChange(f)).map((f) => f.filename))
-  const gate = names.filter((f) => !PROTECTED(f) && GATE_CODE(f) && !safeWf.has(f))
+  const gate = names.filter((f) => !PROTECTED(f) && GATE_CODE(f))
   const unknown = names.filter((f) => !PROTECTED(f) && !frameApproved(f, framePaths) && !GATE_CODE(f) && !NORMAL_PATH(f))
   const labeled = labels.includes(NEEDS_LEE_LABEL)
   const depRisk = dependencyRisks({ files, ...depFiles })
   // 경로만으로 이미 고위험인 파일(결정 문서·화면 틀·검사 장치)은 내용 검사를 겹치지 않는다
-  const content = contentRisks(files.filter((f) => { const n = f.filename ?? f; return !PROTECTED(n) && !frameApproved(n, framePaths) && (!GATE_CODE(n) || safeWf.has(n)) }))
+  const content = contentRisks(files.filter((f) => { const n = f.filename ?? f; return !PROTECTED(n) && !frameApproved(n, framePaths) && !GATE_CODE(n) }))
   const unreadable = content.filter((c) => c.endsWith('(판단 불가)')), realContent = content.filter((c) => !c.endsWith('(판단 불가)'))
   // 변경 파일 목록이 비어 있으면 분석이 실패한 것이다(PR은 항상 파일을 바꾼다) — 닫힌 실패
   const empty = files.length === 0

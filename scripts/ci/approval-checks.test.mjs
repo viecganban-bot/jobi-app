@@ -22,7 +22,7 @@ assert.equal(v({ comments: [{ ...claudeOk[0], body: claudeOk[0].body.replace(sha
 // AI가 아닌 계정이 단 검토 결과 흉내는 인정 안 함
 assert.equal(v({ comments: [{ ...claudeOk[0], user: { login: 'someone' } }] }).review.state, 'pending', '다른 계정의 표시 댓글 무효')
 // ② 고위험(검사 장치 변경): 승인·보고 전 차단 → 보고만 있으면 Lee 대기 → Lee Approve 뒤 통과
-{ const files = [f('.github/workflows/x.yml')]
+{ const files = [f('.github/workflows/bot-pr-automerge.yml')]
   assert.equal(v({ files }).approval.state, 'failure', '보고 없음 → 실패'); assert.match(v({ files }).approval.summary, /4대 보고/)
   assert.equal(v({ files, body }).approval.state, 'blocked', '보고 있음·Lee 승인 없음 → 대기(action_required)')
   assert.equal(v({ files, body, reviews: leeOk }).approval.state, 'success', '보고 + Lee Approve → 통과')

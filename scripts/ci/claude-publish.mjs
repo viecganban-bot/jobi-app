@@ -17,7 +17,7 @@ import { existsSync, lstatSync, readFileSync, writeFileSync, mkdtempSync } from 
 import { tmpdir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { GATE_CODE } from '../decision-approval-gate.mjs'
+import { AI_LOCKED } from '../decision-approval-gate.mjs'
 import { REPLY_MARKER, FALLBACK_MARKER } from '../codex-review-gate.mjs'
 
 export const ISSUE_MARKER = '<!-- claude-issue-reply -->'
@@ -26,10 +26,10 @@ export const LIMITS = { text: 6000, issueTitle: 120, issueBody: 6000, issues: 3,
 // GitHub이 github-actions[bot] 커밋으로 연결해 check-pr-ready의 봇 커밋 판정(claude[bot])이 늘 실패했다(독립 검토 3차 지적 8).
 export const BOT = { name: 'claude[bot]', email: '209825114+claude[bot]@users.noreply.github.com' }
 
-// Claude가 고치면 안 되는 곳: 검사·보호 장치(GATE_CODE — Lee 승인 대상과 같은 목록), Claude·도구 설정, git 동작을 바꾸는 파일.
+// Claude가 고치면 안 되는 곳: 검사·보호 장치(AI_LOCKED — 예전 Lee 승인 목록 그대로, 승인 범위를 줄여도 Claude 수정 금지는 유지), Claude·도구 설정, git 동작을 바꾸는 파일.
 export function forbiddenPath(path) {
   // + 병합되면 운영 DB 열쇠로 바로 실행되는 곳(운영 SQL·migration)은 Claude 자동 수정 대상이 아니다(독립 검토 3차 지적 4)
-  return GATE_CODE(path) || /^scripts\/ops\/jobs\//.test(path) || /^supabase\/migrations\//.test(path) || /^\.claude(\/|$)/.test(path) || /(^|\/)CLAUDE\.md$/.test(path) || /(^|\/)\.mcp\.json$/.test(path)
+  return AI_LOCKED(path) || /^scripts\/ops\/jobs\//.test(path) || /^supabase\/migrations\//.test(path) || /^\.claude(\/|$)/.test(path) || /(^|\/)CLAUDE\.md$/.test(path) || /(^|\/)\.mcp\.json$/.test(path)
     || /(^|\/)\.git(attributes|modules|ignore)?$/.test(path) || /^\.husky(\/|$)/.test(path) || /(^|\/)(\.ripgreprc|\.claude\.json|CLAUDE\.local\.md)$/.test(path) || /(^|\/)\.git\//.test(path) || path.startsWith('.claude-out')
     || path.startsWith('/') || path.split('/').includes('..')
 }

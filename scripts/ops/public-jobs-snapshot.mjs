@@ -1,6 +1,6 @@
 // 읽기 전용 공개 공고 스냅샷(Lee 2026-11-22, 엔진 정리 1차 병합 전후 비교용). 쓰기·비밀키·개인정보 없음.
 // 앱이 공개로 내보내는 것과 같은 앱 공개 키(anon, RLS)로 공개 공고만 읽는다 — location-administrative-public-check.mjs와 같은 읽기 방식.
-// 담는 칸: 공고 id·제목·회사·위치 글자·공개 상태(active, admin_hidden)·갱신 시각, 근무지 원본 점(id·좌표·정확도). 연락처·원문·계정 정보는 읽지 않는다.
+// 담는 칸: 공고 id·제목·회사·위치 글자·공개 상태(active, admin_hidden)·등록·게시 시각(created_at·posted_at — updated_at은 공개 키로 읽을 수 없는 칸이라 제외), 근무지 원본 점(id·좌표·정확도). 연락처·원문·계정 정보는 읽지 않는다.
 import {writeFileSync} from 'node:fs'
 import {createHash} from 'node:crypto'
 import {supabaseServer as client} from '../../src/lib/supabaseServer.ts'
@@ -9,7 +9,7 @@ const sha = (v) => createHash('sha256').update(JSON.stringify(v)).digest('hex')
 try {
   const at = new Date().toISOString(), jobs = []
   for (let from = 0; ; from += 500) {
-    const {data, error} = await client.from('local_jobs').select('id,title,company,location,active,admin_hidden,updated_at')
+    const {data, error} = await client.from('local_jobs').select('id,title,company,location,lat,lng,active,admin_hidden,created_at,posted_at')
       .eq('active', true).eq('admin_hidden', false).order('id').range(from, from + 499).abortSignal(AbortSignal.timeout(20000))
     if (error) throw new Error('public_jobs_unavailable: ' + error.message)
     jobs.push(...data)

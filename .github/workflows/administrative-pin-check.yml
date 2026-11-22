@@ -5,11 +5,15 @@ on:
     types: [completed]
     branches: [master]
   workflow_dispatch: {}
+  # 공개 공고 스냅샷(읽기 전용, Lee 2026-11-22): 이 스냅샷 스크립트를 바꾼 PR에서도 돌려 병합 전 기준값을 남긴다(열쇠 없음).
+  pull_request:
+    paths:
+      - scripts/ops/public-jobs-snapshot.mjs
 permissions:
   contents: read
 jobs:
   public-pins:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -22,4 +26,15 @@ jobs:
           cache: npm
       - run: npm ci
       - name: All public source points are inside their original province (rendered main/detail pins are checked by deploy-verify map-summary-check)
+        if: github.event_name != 'pull_request'
         run: node --experimental-strip-types --import ./scripts/ts-extensionless-register.mjs scripts/ops/location-administrative-public-check.mjs
+      - name: Public jobs snapshot (read-only; id·제목·회사·위치·좌표·공개 상태·갱신 시각, 연락처·비밀키 없음)
+        if: always()
+        run: node --experimental-strip-types --import ./scripts/ts-extensionless-register.mjs scripts/ops/public-jobs-snapshot.mjs public-jobs-snapshot.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: public-jobs-snapshot-${{ github.sha }}
+          path: public-jobs-snapshot.json
+          if-no-files-found: ignore
+          retention-days: 30

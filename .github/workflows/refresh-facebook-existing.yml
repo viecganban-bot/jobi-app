@@ -1,16 +1,8 @@
 name: Unified job reprocess queue (ingest and R7)
+# 엔진 정리 1차(Lee 2026-11-22): 30분 예약·코드 변경 시 자동 실행·전체 재처리(REPROCESS_ENQUEUE_ALL)를 없앴다.
+# 수동 실행만 남는다 — 공고 번호를 넣으면 그 공고만 다시 처리하고, 번호 없이 실행하면(관리자 재처리 요청 API가 이렇게 부름)
+# 이미 대기열에 들어 있는 요청만 처리한다. 모든 기존 공고를 한꺼번에 대기열에 넣지 않는다.
 on:
-  push:
-    branches: [master]
-    paths:
-      - crawler/crawl_facebook.py
-      - crawler/refresh_facebook_existing.py
-      - crawler/reprocess_queue.py
-      - src/lib/jobDetailSections.ts
-      - src/lib/sourceRecruitmentRoles.ts
-      - scripts/ocr/**
-  schedule:
-    - cron: '12,42 * * * *'
   workflow_dispatch:
     inputs:
       job_id:
@@ -32,8 +24,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-      REPROCESS_ENQUEUE_ALL: ${{ github.event_name != 'workflow_dispatch' && '1' || '0' }}
-      REPROCESS_JOB_IDS: ${{ github.event_name == 'workflow_dispatch' && inputs.job_id || '' }}
+      REPROCESS_JOB_IDS: ${{ inputs.job_id || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
